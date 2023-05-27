@@ -1,0 +1,83 @@
+Create a MySQL InnoDB Cluster 8.0.32 from scratch on OEL/RHEL/OL/CentOS and using CLONE plugin to provision the nodes
+1. Prepare three machine on linux 8 and disable firewall(systemctl stop firewalld)(systemctl disable firewalld) and vi /etc/selinux/sysconfig enforcing to permissive
+Make sure all machine names must be in /etc/hosts files
+2. download from https://downloads.mysql.com/archives/community/ and other rpms as below and copy in /sw directory
+mysql-8.0.32-1.el8.x86_64.rpm-bundle.tar        python39-libs-3.9.7-1.module+el8.6.0+20625+ee813db2.x86_64.rpm
+mysql-router-community-8.0.32-1.el8.x86_64.rpm  python39-pip-wheel-20.2.4-7.module+el8.6.0+20625+ee813db2.noarch.rpm
+mysql-shell-8.0.32-1.el8.x86_64.rpm             python39-setuptools-wheel-50.3.2-4.module+el8.5.0+20364+c7fe1181.noarch.rpm
+3. tar -xvf mysql-8.0.32-1.el8.x86_64.rpm-bundle.tar
+4. cd /sw
+5. 
+yum install mysql-community-{server,client,client-plugins,icu-data-files,common,libs,debuginfo}-*
+yum install python39*
+yum install mysql-shell-8.0.32-1.el8.x86_64.rpm
+6. tail -f /var/log/mysqld.log | grep -i password &
+7. systemctl start mysqld
+
+8. mysqlsh root@localhost --sql
+dont save passord as it is temporary and we will change
+ MySQL  localhost:33060+  SQL > set password='Oracle_123';
+  MySQL  localhost:33060+  SQL > create user clusteradmin identified by 'Oracle_123';
+ MySQL  localhost:33060+  SQL > grant all privileges on *.* to clusteradmin with grant option;
+ ctrl+d
+cp /usr/share/mysqlsh/prompt/prompt_dbl_256pl+aw.json ~/.mysqlsh/prompt.json
+mysqlsh
+shell.options.setPersist('history.autoSave', 1)
+shell.options.setPersist('history.maxSize', 5000)
+
+
+dba.configureInstance('clusteradmin@oel86mysql1')
+Save password for 'clusteradmin@oel86mysql1'? [Y]es/[N]o/Ne[v]er (default No): y
+Do you want to perform the required configuration changes? [y/n]: y
+Do you want to restart the instance after configuring it? [y/n]: y
+
+dba.configureInstance('clusteradmin@oel86mysql2')
+Save password for 'clusteradmin@oel86mysql2'? [Y]es/[N]o/Ne[v]er (default No): y
+Do you want to perform the required configuration changes? [y/n]: y
+Do you want to restart the instance after configuring it? [y/n]: y
+
+dba.configureInstance('clusteradmin@oel86mysql3')
+Save password for 'clusteradmin@oel86mysql3'? [Y]es/[N]o/Ne[v]er (default No): y
+Do you want to perform the required configuration changes? [y/n]: y
+Do you want to restart the instance after configuring it? [y/n]: y
+
+\c clusteradmin@oel86mysql1
+cluster=dba.createCluster('myCluster')
+cluster.status
+dba.checkInstanceConfiguration('clusteradmin@oel86mysql2')
+dba.checkInstanceConfiguration('clusteradmin@oel86mysql3')
+
+cluster.addInstance('clusteradmin@oel86mysql2')
+cluster.addInstance('clusteradmin@oel86mysql3')
+cluster.status()
+
+-- router The recommended deployment model for MySQL Router is with InnoDB Cluster, with Router sitting on the same host as the application. 
+cd /sw 
+yum install mysql-router-community-8.0.32-1.el8.x86_64.rpm
+cd /usr/bin/mysqlrouter
+
+mysqlrouter --bootstrap clusteradmin@localhost:3306 --name myrouter --directory /tmp/myrouter --conf-use-sockets --account routerfriend --account-create always --user=root
+
+mysqlrouter --bootstrap clusteradmin@oel86mysql2:3306 --name myrouter --directory /tmp/myrouter --account routerfriend --account-create=never --force
+
+
+ 
+./start.sh
+
+\c clusteradmin@localhost:6447
+\sql
+select @@hostname
+\c clusteradmin@localhost:6446
+\sql
+select @@hostname
+
+systemctl stop mysqld on primary
+
+ MySQL   localhost:6446   SQL 
+  > \js
+Switching to JavaScript mode...
+ MySQL   localhost:6446   JS 
+  > var cluster = dba.getCluster()
+<Function:status>
+ MySQL   localhost:6446   JS 
+  > cluster.status()
